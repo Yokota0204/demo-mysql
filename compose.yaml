@@ -1,0 +1,79 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: demo-mysql-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ}
+      # 未設定だと LC_CTYPE=POSIX になり、mysqlの対話プロンプトで
+      # 日本語の入力・表示が壊れる(イメージに ja_JP.UTF-8 は無い)
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    ports:
+      # ホスト側からGUIツール(TablePlus等)で繋ぐ用。localhost からのみ接続可
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 設定ファイル。書き換えて `make restart` で反映する
+      - ./docker/mysql/conf.d:/etc/mysql/conf.d:ro
+      # 初回起動時(volumeが空のとき)だけ実行される
+      - ./docker/mysql/initdb.d:/docker-entrypoint-initdb.d:ro
+      # スロークエリログをホストから直接読めるようにする
+      - ./logs/mysql:/var/log/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  php:
+    build:
+      context: ./docker/php
+    container_name: demo-mysql-php
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: ${TZ}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    volumes:
+      - ./src:/app
+    working_dir: /app
+    # CLI用途なので何もせず常駐させ、exec でスクリプトを実行する
+    command: ["sleep", "infinity"]
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: demo-mysql-pma
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      UPLOAD_LIMIT: 256M
+      TZ: ${TZ}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    ports:
+      - "127.0.0.1:${PMA_PORT}:80"
+
+volumes:
+  mysql-data:
+    name: demo-mysql-data

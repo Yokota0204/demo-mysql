@@ -1,0 +1,4 @@
+.env
+logs/mysql/*
+!logs/mysql/.gitkeep
+docs
